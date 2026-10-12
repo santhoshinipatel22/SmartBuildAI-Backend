@@ -17,26 +17,42 @@ public class DataSourceConfig {
 
     private static final Logger log = LoggerFactory.getLogger(DataSourceConfig.class);
 
+    private static final String RENDER_DEFAULT_POSTGRES = 
+            "postgresql://nirmman_user:95mkCKq8cumzivfZvnSHagDN0COBIvel@dpg-db5pvtl9fdbs73dngrlg-a/nirmman";
+
     @Value("${spring.datasource.url:}")
     private String rawUrl;
 
-    @Value("${spring.datasource.username:}")
+    @Value("${spring.datasource.username:root}")
     private String defaultUsername;
 
-    @Value("${spring.datasource.password:}")
+    @Value("${spring.datasource.password:san#mysql@22}")
     private String defaultPassword;
 
     @Bean
     @Primary
     public DataSource dataSource() {
-        // Check Render standard DATABASE_URL environment variable first, then spring.datasource.url
         String envDbUrl = System.getenv("DATABASE_URL");
+        if (envDbUrl == null || envDbUrl.isBlank()) {
+            envDbUrl = System.getenv("DB_URL");
+        }
+        if (envDbUrl == null || envDbUrl.isBlank()) {
+            envDbUrl = System.getenv("SPRING_DATASOURCE_URL");
+        }
+
+        // If running in cloud (Render) and no URL specified, use the user's Render PostgreSQL database
+        boolean isCloud = System.getenv("RENDER") != null || System.getenv("PORT") != null;
+        if ((envDbUrl == null || envDbUrl.isBlank()) && isCloud) {
+            log.info("Running on Render: Defaulting to Render internal PostgreSQL database...");
+            envDbUrl = RENDER_DEFAULT_POSTGRES;
+        }
+
         String urlToUse = (envDbUrl != null && !envDbUrl.isBlank()) ? envDbUrl : rawUrl;
 
         HikariConfig config = new HikariConfig();
 
         if (urlToUse != null && (urlToUse.startsWith("postgresql://") || urlToUse.startsWith("postgres://"))) {
-            log.info("Detected PostgreSQL URL format from environment, parsing for JDBC...");
+            log.info("Configuring PostgreSQL DataSource from URI...");
             try {
                 URI uri = new URI(urlToUse);
                 String host = uri.getHost();
@@ -59,28 +75,28 @@ public class DataSourceConfig {
                 config.setPassword(password);
                 config.setDriverClassName("org.postgresql.Driver");
 
-                log.info("Configured PostgreSQL DataSource for host: {}", host);
+                log.info("Configured PostgreSQL connection to host: {}", host);
             } catch (Exception e) {
-                log.error("Failed to parse PostgreSQL URI, falling back to raw URL: {}", e.getMessage());
+                log.error("Failed to parse PostgreSQL URI: {}", e.getMessage());
                 config.setJdbcUrl(urlToUse.startsWith("jdbc:") ? urlToUse : "jdbc:" + urlToUse);
                 config.setUsername(defaultUsername);
                 config.setPassword(defaultPassword);
             }
         } else {
-            // Default MySQL or standard JDBC URL
+            // Local MySQL fallback
             config.setJdbcUrl(urlToUse);
             config.setUsername(defaultUsername);
             config.setPassword(defaultPassword);
             if (urlToUse != null && urlToUse.contains("mysql")) {
                 config.setDriverClassName("com.mysql.cj.jdbc.Driver");
             }
-            log.info("Configured standard JDBC DataSource: {}", urlToUse != null && urlToUse.contains("?") ? urlToUse.substring(0, urlToUse.indexOf("?")) : urlToUse);
+            log.info("Configured MySQL connection to: {}", urlToUse);
         }
 
-        config.setMaximumPoolSize(10);
-        config.setMinimumIdle(2);
+        config.setMaximumPoolSize(5);
+        config.setMinimumIdle(1);
         config.setIdleTimeout(300000);
-        config.setConnectionTimeout(20000);
+        config.setConnectionTimeout(15000); // 15 seconds max connection timeout to prevent hanging
 
         return new HikariDataSource(config);
     }
