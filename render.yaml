@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: tt-backend
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: DATABASE_URL
+        value: postgresql://nirmman_user:95mkCKq8cumzivfZvnSHagDN0COBIvel@dpg-db5pvtl9fdbs73dngrlg-a/nirmman
+      - key: PORT
+        value: 8080
